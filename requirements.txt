@@ -1,0 +1,23 @@
+# Core data/ML
+numpy
+pandas>=2.2,<2.4
+scikit-learn
+joblib
+xgboost
+matplotlib
+langgraph
+
+# App & LLM
+streamlit
+openai
+fastapi
+uvicorn[standard]
+
+# Data ingest
+requests
+pyarrow
+nfl-data-py
+
+# Testing & tooling
+pytest
+python-dotenv

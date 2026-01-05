@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Environments
+.venv/
+.env
+
+# OS / editors
+.DS_Store
+.idea/
+*.swp
+
+# Data & models
+data/
+outputs/
+models/*.pkl
+models/*.joblib
+models/*.bin
+
+# Notebooks
+.ipynb_checkpoints/
