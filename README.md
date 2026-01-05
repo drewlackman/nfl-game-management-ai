@@ -2,6 +2,8 @@
 
 Tooling for NFL in-game decision support: download play-by-play, engineer features, train a win-probability model, simulate fourth-down choices, and explain recommendations via LLM and Streamlit UI.
 
+![Hero screenshot](docs/screenshots/streamlit.png)
+
 ## Current State
 - Streamlit UI + FastAPI API + LangGraph agent wired to WP and rate models.
 - Feature-rich WP model (context/timeouts/goal-to-go/log distance) with calibration.
@@ -100,6 +102,8 @@ python -m src.agents.run_langgraph_agent ...# agent
   python -m src.agents.cli_recommend --home KC --away BUF --posteam KC --yardline 50 --down 4 --ydstogo 1 --home-score 14 --away-score 10 --game-seconds 600
   ```
 - Deploy to Render (Streamlit + API): see `render.yaml` and `docs/deploy_render.md`.
+- Model Card: `reports/model_card.md`
+- Case Study: `reports/case_study.md`
 
 ## Testing
 ```bash
