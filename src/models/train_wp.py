@@ -36,7 +36,7 @@ def load_processed(processed_dir: Path | str = Path("data/processed")) -> tuple[
         raise KeyError("Expected 'home_win' target column in processed data.")
 
     y = combined["home_win"]
-    X = combined.drop(columns=["home_win", "game_id"])
+    X = combined.drop(columns=["home_win", "game_id", "season"], errors="ignore")
     LOG.info("Loaded processed data: %s rows", len(combined))
     return X, y
 
@@ -107,8 +107,8 @@ def train_model(
     """Train the model and save artifact."""
     X, y = load_processed(processed_dir)
 
-    categorical = ["posteam", "defteam", "home_team", "away_team"]
-    numeric = [
+    categorical_all = ["posteam", "defteam", "home_team", "away_team"]
+    numeric_all = [
         "yardline_100",
         "down",
         "ydstogo",
@@ -124,7 +124,16 @@ def train_model(
         "is_home_defense",
         "goal_to_go",
         "two_min_drill",
+        "two_possession",
+        "roof_closed_or_dome",
+        "surface_synthetic",
+        "is_neutral_site",
+        "temp_f",
+        "wind_mph",
     ]
+    available = set(X.columns)
+    categorical = [c for c in categorical_all if c in available]
+    numeric = [n for n in numeric_all if n in available]
 
     clf = build_pipeline(categorical, numeric, calibrate=calibrate, model_type=model_type)
     LOG.info("Starting training on %s rows | calibrate=%s | model_type=%s", len(X), calibrate, model_type)

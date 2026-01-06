@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,7 +39,14 @@ def load_model(model_path: Path | str = "models/wp_model.joblib"):
     return joblib.load(path)
 
 
-def evaluate(model, X: pd.DataFrame, y: pd.Series, metrics_dir: Path | str = "outputs/metrics") -> None:
+def evaluate(
+    model,
+    X: pd.DataFrame,
+    y: pd.Series,
+    metrics_dir: Path | str = "outputs/metrics",
+    n_bootstrap: int = 0,
+    bootstrap_frac: float = 1.0,
+) -> None:
     metrics_path = Path(metrics_dir)
     metrics_path.mkdir(parents=True, exist_ok=True)
 
@@ -74,18 +85,50 @@ def evaluate(model, X: pd.DataFrame, y: pd.Series, metrics_dir: Path | str = "ou
     LOG.info("Saved calibration plot -> %s", out_plot)
 
     out_txt = metrics_path / "wp_metrics.txt"
-    out_txt.write_text(
-        f"ROC-AUC: {auc:.4f}\nLogLoss: {loss:.4f}\nBrier: {brier:.4f}\n",
-        encoding="utf-8",
-    )
+    lines = [f"ROC-AUC: {auc:.4f}", f"LogLoss: {loss:.4f}", f"Brier: {brier:.4f}"]
+
+    if n_bootstrap > 0:
+        rng = np.random.default_rng(42)
+        aucs, losses, briers = [], [], []
+        n = len(y)
+        sample_size = int(n * bootstrap_frac)
+        for _ in range(n_bootstrap):
+            idx = rng.integers(0, n, size=sample_size)
+            y_s = y.iloc[idx]
+            p_s = proba[idx]
+            aucs.append(roc_auc_score(y_s, p_s))
+            losses.append(log_loss(y_s, p_s))
+            briers.append(brier_score_loss(y_s, p_s))
+        def ci(values):
+            return np.percentile(values, [2.5, 97.5])
+        auc_ci = ci(aucs)
+        loss_ci = ci(losses)
+        brier_ci = ci(briers)
+        lines.append(f"ROC-AUC 95% CI: [{auc_ci[0]:.4f}, {auc_ci[1]:.4f}]")
+        lines.append(f"LogLoss 95% CI: [{loss_ci[0]:.4f}, {loss_ci[1]:.4f}]")
+        lines.append(f"Brier 95% CI: [{brier_ci[0]:.4f}, {brier_ci[1]:.4f}]")
+
+    out_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
     LOG.info("Saved metrics -> %s", out_txt)
 
 
 def main() -> None:
     logging.basicConfig(level="INFO", format="%(levelname)s %(message)s")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evaluate WP model.")
+    parser.add_argument("--metrics-dir", default="outputs/metrics")
+    parser.add_argument("--n-bootstrap", type=int, default=0, help="Number of bootstrap resamples for CIs.")
+    parser.add_argument(
+        "--bootstrap-frac",
+        type=float,
+        default=1.0,
+        help="Fraction of validation set to sample per bootstrap (<=1.0).",
+    )
+    args = parser.parse_args()
     X, y = load_data()
     model = load_model()
-    evaluate(model, X, y)
+    evaluate(model, X, y, metrics_dir=args.metrics_dir, n_bootstrap=args.n_bootstrap, bootstrap_frac=args.bootstrap_frac)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ Models to support NFL in-game decisions (4th down): a win-probability (WP) class
 - Situation: down, ydstogo (+log), yardline_100, score diff, game/half/qtr seconds remaining.
 - Timeouts: offense/defense, diff.
 - Context flags: goal_to_go, two_min_drill, is_home_offense/defense.
+- Context extras: two_possession flag; venue/roof/surface/neutral_site; weather (temp, wind).
 - Categorical: posteam, defteam, home_team, away_team (one-hot).
 
 ## Models
@@ -19,7 +20,7 @@ Models to support NFL in-game decisions (4th down): a win-probability (WP) class
 - Rates: GradientBoosting for conversion/FG (classification), GradientBoostingRegressor for punt net yards.
 
 ## Validation
-- WP metrics: ROC-AUC, LogLoss, Brier; calibration curve (quantile bins).
+- WP metrics: ROC-AUC, LogLoss, Brier; ROC + calibration curve (quantile bins); bootstrap CIs optional (`--n-bootstrap`).
 - Rate metrics: Conversion/FG AUC/LogLoss/Brier; punt MAE.
 - Plots: `outputs/metrics/wp_calibration.png`, `wp_roc.png`, `conversion_calibration.png`, `fg_calibration.png`, `*_error_hist.png`.
 
@@ -36,7 +37,7 @@ Models to support NFL in-game decisions (4th down): a win-probability (WP) class
 ## Next Steps
 - Add opponent/venue/weather features; drive/series context.
 - Quantify uncertainty (e.g., bootstrap, Bayesian calibration) and propagate through sim.
-- Integrate learned conversion/FG/punt models trained on latest seasons; add opponent-adjusted priors.
+- Integrate learned conversion/FG/punt models trained on latest seasons; add opponent-adjusted priors (see `models/rates/priors.json` template).
 - Benchmark alternative WP models (LightGBM, CatBoost) and calibration methods.
 - Add latency/throughput benchmarks for API/Streamlit; cache models/rate models.
 

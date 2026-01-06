@@ -48,6 +48,13 @@ def test_engineer_features_basic():
         "two_min_drill",
         "timeouts_diff",
         "log_ydstogo",
+        "two_possession",
+        "season",
+        "roof_closed_or_dome",
+        "surface_synthetic",
+        "is_neutral_site",
+        "temp_f",
+        "wind_mph",
     ]
     assert y.iloc[0] == 1
     assert X.iloc[0]["is_home_offense"] == 1

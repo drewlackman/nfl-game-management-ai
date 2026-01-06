@@ -6,6 +6,10 @@ import logging
 from pathlib import Path
 from typing import Tuple
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -173,10 +177,18 @@ def evaluate_punt(model, pbp: pd.DataFrame, metrics_dir: Path) -> None:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evaluate rate models.")
+    parser.add_argument("--raw-dir", default="data/raw")
+    parser.add_argument("--model-dir", default="models/rates")
+    parser.add_argument("--metrics-dir", default="outputs/metrics")
+    args = parser.parse_args()
+
     logging.basicConfig(level="INFO", format="%(levelname)s %(message)s")
-    raw_dir = Path("data/raw")
-    model_dir = Path("models/rates")
-    metrics_dir = Path("outputs/metrics")
+    raw_dir = Path(args.raw_dir)
+    model_dir = Path(args.model_dir)
+    metrics_dir = Path(args.metrics_dir)
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
     pbp = load_raw_pbp(raw_dir)

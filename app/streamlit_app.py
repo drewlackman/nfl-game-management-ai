@@ -12,8 +12,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+VERSION_FILE = PROJECT_ROOT / "VERSION"
+MODEL_VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0"
+
 from src.llm.explain import explain_decision  # noqa: E402
 from src.sim.fourth_down import GameState, evaluate_fourth_down, load_model, load_rate_models  # noqa: E402
+from src.sim.fourth_down import decision_intervals  # noqa: E402
 
 
 class Preset:
@@ -141,6 +145,7 @@ def validate_inputs(yardline: int, ydstogo: float, down: int) -> tuple[bool, str
 
 def main() -> None:
     st.title("NFL Game Management AI — Fourth Down")
+    st.caption(f"Model version: {MODEL_VERSION}")
     st.caption("Heuristic simulator powered by a trained win-probability model.")
 
     preset = st.selectbox("Load a preset scenario", options=["(none)"] + list(PRESETS.keys()))
@@ -208,6 +213,8 @@ def main() -> None:
             st.error(f"{exc} — run training first.")
             return
         rate_models = get_rate_models()
+        if not use_priors and rate_models:
+            rate_models.team_priors = None
         using_learned = any(
             [
                 rate_models.conversion_model is not None,
@@ -234,6 +241,7 @@ def main() -> None:
         )
 
         decisions = evaluate_fourth_down(model, state, rate_models=rate_models)
+        intervals = decision_intervals(model, state, rate_models=rate_models, n_samples=200, alpha=0.1)
         table = pd.DataFrame(decisions)
         table["wp_pct"] = table["wp"] * 100
         st.subheader("Decisions (higher WP is better)")
@@ -251,6 +259,13 @@ def main() -> None:
                     f"Delta vs actual decision ({actual}): {delta:+.1f} pp WP"
                     + (f" — {selected.note}" if selected.note else "")
                 )
+        # Uncertainty range from Monte Carlo on decision outcomes
+        interval = intervals.get(best["decision"])
+        if interval:
+            st.caption(
+                f"Approximate WP range (10-90%): [{interval['low']*100:.1f}%, {interval['high']*100:.1f}%] "
+                f"| mean {interval['mean']*100:.1f}%"
+            )
 
     st.markdown("---")
     if using_learned:
@@ -258,6 +273,110 @@ def main() -> None:
     else:
         st.caption("Note: Probabilities use simple heuristics; train rate models for data-driven estimates.")
 
+    st.markdown("### Sensitivity")
+    with st.expander("WP sensitivity to ydstogo and timeouts"):
+        deltas = [-1, 0, 1]
+        rows = []
+        for dy in deltas:
+            adj_ydtogo = max(1.0, ydstogo + dy)
+            adj_state = GameState(
+                home_team=home_team,
+                away_team=away_team,
+                posteam=pos,
+                defteam=defense,
+                yardline_100=yardline,
+                down=down,
+                ydstogo=adj_ydtogo,
+                quarter_seconds_remaining=qtr_sec,
+                half_seconds_remaining=half_sec,
+                game_seconds_remaining=game_sec,
+                home_score=home_score,
+                away_score=away_score,
+                posteam_timeouts=home_timeouts if pos == home_team else away_timeouts,
+                defteam_timeouts=away_timeouts if pos == home_team else home_timeouts,
+            )
+            dec = evaluate_fourth_down(model, adj_state, rate_models=rate_models)[0]
+            rows.append({"ydstogo": adj_ydtogo, "decision": dec["decision"], "wp_pct": dec["wp"] * 100})
+
+        # Timeout sensitivity: flip timeouts +/-1 within bounds
+        to_rows = []
+        for delta_to in deltas:
+            adj_off_to = min(3, max(0, (home_timeouts if pos == home_team else away_timeouts) + delta_to))
+            adj_def_to = min(3, max(0, (away_timeouts if pos == home_team else home_timeouts) + delta_to))
+            adj_state = GameState(
+                home_team=home_team,
+                away_team=away_team,
+                posteam=pos,
+                defteam=defense,
+                yardline_100=yardline,
+                down=down,
+                ydstogo=ydstogo,
+                quarter_seconds_remaining=qtr_sec,
+                half_seconds_remaining=half_sec,
+                game_seconds_remaining=game_sec,
+                home_score=home_score,
+                away_score=away_score,
+                posteam_timeouts=adj_off_to,
+                defteam_timeouts=adj_def_to,
+            )
+            dec = evaluate_fourth_down(model, adj_state, rate_models=rate_models)[0]
+            to_rows.append({"timeouts_delta": delta_to, "decision": dec["decision"], "wp_pct": dec["wp"] * 100})
+
+        st.write("Yards to go sensitivity")
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        st.write("Timeouts sensitivity (offense/defense +/-1)")
+        st.dataframe(pd.DataFrame(to_rows), use_container_width=True)
+        # Simple WP vs ydstogo curve around current state
+        ytg_range = [max(1, ydstogo + delta) for delta in range(-3, 4)]
+        chart_rows = []
+        for ytg_val in sorted(set(ytg_range)):
+            adj_state = GameState(
+                home_team=home_team,
+                away_team=away_team,
+                posteam=pos,
+                defteam=defense,
+                yardline_100=yardline,
+                down=down,
+                ydstogo=ytg_val,
+                quarter_seconds_remaining=qtr_sec,
+                half_seconds_remaining=half_sec,
+                game_seconds_remaining=game_sec,
+                home_score=home_score,
+                away_score=away_score,
+                posteam_timeouts=home_timeouts if pos == home_team else away_timeouts,
+                defteam_timeouts=away_timeouts if pos == home_team else home_timeouts,
+            )
+            dec = evaluate_fourth_down(model, adj_state, rate_models=rate_models)[0]
+            chart_rows.append({"ydstogo": ytg_val, "wp_pct": dec["wp"] * 100})
+        chart_df = pd.DataFrame(chart_rows).sort_values("ydstogo")
+        st.line_chart(chart_df.set_index("ydstogo"), height=220)
+
+    if rate_models and rate_models.team_priors:
+        st.markdown("### Team priors")
+        priors_df = pd.DataFrame(
+            [
+                {"team": team, "prior": val, "offense": val, "defense": -val}
+                for team, val in rate_models.team_priors.items()
+            ]
+        ).sort_values("prior", ascending=False)
+        st.dataframe(priors_df, use_container_width=True)
+
+        st.markdown("#### Compare with vs without priors")
+        state_for_compare = state
+        with_priors = evaluate_fourth_down(model, state_for_compare, rate_models=rate_models)[0]
+        without_priors_models = load_rate_models()
+        if without_priors_models:
+            without_priors_models.team_priors = None
+        without_priors = evaluate_fourth_down(model, state_for_compare, rate_models=without_priors_models)[0]
+        compare_df = pd.DataFrame(
+            [
+                {"mode": "with priors", "decision": with_priors["decision"], "wp_pct": with_priors["wp"] * 100},
+                {"mode": "without priors", "decision": without_priors["decision"], "wp_pct": without_priors["wp"] * 100},
+            ]
+        )
+        st.dataframe(compare_df, use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
+    use_priors = st.checkbox("Apply team priors (if available)", value=True)

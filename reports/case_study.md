@@ -51,13 +51,19 @@ Fill WP outputs/deltas after running the model on each state.
    - Actual WP: 69.3% | Delta: +0.0 pp  
    - Notes: High-leverage playoff drive.
 
-6) Chargers vs Browns (Week 5, 2022) — 4th & 2 at own 46, 1:14 Q4, up 2  
+6) Ravens vs Steelers (Week 13, 2021) — 4th & Goal at 2, 0:12 Q4, down 1  
+   - Actual: **Go** for 2 (failed; lost).  
+   - Model rec: **Punt** — WP 73.0%  
+   - Actual WP: 63.7% | Delta: +9.3 pp  
+   - Notes: Harbaugh cited injuries; model prefers conservative play.
+
+7) Chargers vs Browns (Week 5, 2022) — 4th & 2 at own 46, 1:14 Q4, up 2  
    - Actual: **Go** (failed; still won).  
    - Model rec: **Punt** — WP 35.6%  
    - Actual WP: 24.9% | Delta: +10.6 pp  
    - Notes: Staley aggressiveness under scrutiny.
 
-7) Eagles vs 49ers (NFC Championship, 2022) — 4th & 3 at SF 35, 10:21 Q1 (“DeVonta catch”)  
+8) Eagles vs 49ers (NFC Championship, 2022) — 4th & 3 at SF 35, 10:21 Q1 (“DeVonta catch”)  
    - Actual: **Go** (converted; led to TD).  
    - Model rec: **Field goal** — WP 40.7%  
    - Actual WP: 39.0% | Delta: +1.7 pp  
@@ -66,7 +72,7 @@ Fill WP outputs/deltas after running the model on each state.
 ## Metrics & Visuals
 - WP calibration plot: ![](../outputs/metrics/wp_calibration.png)
 - WP ROC curve: ![](../outputs/metrics/wp_roc.png)
-- WP metrics (AUC/LogLoss/Brier): `outputs/metrics/wp_metrics.txt`
+- WP metrics (AUC/LogLoss/Brier + 95% CI): `outputs/metrics/wp_metrics.txt` — AUC 0.942 [0.9396, 0.9437]; LogLoss 0.304 [0.2998, 0.3095]; Brier 0.0947 [0.0931, 0.0969]
 - Conversion calibration: ![](../outputs/metrics/conversion_calibration.png)
 - FG calibration: ![](../outputs/metrics/fg_calibration.png)
 - Error histograms: `conversion_error_hist.png`, `fg_error_hist.png`, `punt_error_hist.png`
@@ -74,10 +80,19 @@ Fill WP outputs/deltas after running the model on each state.
 - App screenshot: ![](../docs/screenshots/streamlit.png)
 
 ## Aggregated Results (fill after running scenarios)
-- Matches vs actual decisions: 3 / 7
-- Average WP delta (model vs actual): +3.2 pp
+- Matches vs actual decisions: 3 / 8
+- Average WP delta (model vs actual): +3.9 pp
 - Biggest positive delta: +10.6 pp (Chargers vs Browns 2022, 4th & 2 own 46)
 - Biggest negative delta: none observed (model > actual in all cases)
+
+## Biggest lifts / risks
+- Lifts: Chargers vs Browns 2022 (+10.6 pp), Lions vs Chargers 2023 (+7.5 pp), Pats vs Colts 2009 (+2.6 pp).
+- Risks/flags: Goal-line modeling improved but still monitor near-goal WP; Ravens 2-pt shows conservative lean; ensure priors don’t overfit.
+
+## Links
+- Live UI: https://your-streamlit-url
+- API: https://your-api-url (`/health`, `/version`, `/recommend`)
+- Demo video: https://your-demo-link
 
 ## Talking Points
 - Data/Features: seasons used; key features (score diff, TOs, log distance, goal-to-go, time buckets).  

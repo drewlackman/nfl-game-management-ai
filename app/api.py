@@ -9,9 +9,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from src.llm.explain import explain_decision
-from src.sim.fourth_down import GameState, evaluate_fourth_down, load_model, load_rate_models
+from src.sim.fourth_down import (
+    GameState,
+    decision_intervals,
+    evaluate_fourth_down,
+    load_model,
+    load_rate_models,
+)
 
 app = FastAPI(title="NFL Game Management API", version="0.1.0")
+VERSION = Path(__file__).resolve().parents[1] / "VERSION"
+MODEL_VERSION = VERSION.read_text().strip() if VERSION.exists() else "0.0.0"
 
 WP_MODEL = load_model()
 RATE_MODELS = load_rate_models()
@@ -29,6 +37,7 @@ class RecommendRequest(BaseModel):
     away_score: int = Field(..., ge=0)
     home_timeouts: int = Field(3, ge=0, le=3)
     away_timeouts: int = Field(3, ge=0, le=3)
+    use_priors: bool = True
 
 
 class RecommendResponse(BaseModel):
@@ -36,7 +45,10 @@ class RecommendResponse(BaseModel):
     wp: float
     rationale: str
     decisions: Optional[list]
+    interval: Optional[dict]
     latency_ms: Optional[float]
+    priors: Optional[dict]
+    priors_applied: bool
 
 
 @app.post("/recommend", response_model=RecommendResponse)
@@ -59,13 +71,40 @@ def recommend(body: RecommendRequest):
         defteam_timeouts=body.away_timeouts if body.posteam == body.home_team else body.home_timeouts,
     )
 
-    decisions = evaluate_fourth_down(WP_MODEL, gs, rate_models=RATE_MODELS)
+    rate_models = RATE_MODELS
+    priors_applied = True
+    priors_payload = None
+    if rate_models and not body.use_priors:
+        rate_models.team_priors = None
+        priors_applied = False
+    if rate_models and rate_models.team_priors:
+        priors_payload = rate_models.team_priors
+
+    decisions = evaluate_fourth_down(WP_MODEL, gs, rate_models=rate_models)
     best = decisions[0]
     rationale = explain_decision(best, gs)
+    intervals = decision_intervals(WP_MODEL, gs, rate_models=RATE_MODELS, n_samples=200, alpha=0.1)
     return RecommendResponse(
         decision=best["decision"],
         wp=best["wp"],
         rationale=rationale,
         decisions=[{k: v for k, v in d.items()} for d in decisions],
         latency_ms=best.get("sim_ms"),
+        interval=intervals.get(best["decision"]),
+        priors=priors_payload,
+        priors_applied=priors_applied,
     )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/version")
+def version():
+    return {
+        "version": MODEL_VERSION,
+        "wp_model_path": str(Path("models/wp_model.joblib").resolve()),
+        "rates_model_dir": str(Path("models/rates").resolve()),
+    }

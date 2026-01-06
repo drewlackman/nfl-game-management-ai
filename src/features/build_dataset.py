@@ -80,6 +80,20 @@ def engineer_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     working["two_min_drill"] = (working["game_seconds_remaining"] <= 120).astype(int)
     working["timeouts_diff"] = working["posteam_timeouts_remaining"] - working["defteam_timeouts_remaining"]
     working["log_ydstogo"] = np.log1p(working["ydstogo"])
+    working["two_possession"] = (working["score_differential"].abs() >= 9).astype(int)
+
+    # Optional contextual features (defaults when missing)
+    working["season"] = df.get("season", pd.Series([0] * len(working))).fillna(0).astype(int)
+    roof_series = df.get("roof", pd.Series([None] * len(working)))
+    working["roof_closed_or_dome"] = roof_series.str.lower().isin(["closed", "dome", "indoors"]).fillna(0).astype(int)
+    surface_series = df.get("surface", pd.Series([None] * len(working)))
+    working["surface_synthetic"] = (
+        surface_series.str.contains("art", case=False, na=False)
+        | surface_series.str.contains("turf", case=False, na=False)
+    ).astype(int)
+    working["is_neutral_site"] = df.get("neutral_site", pd.Series([0] * len(working))).fillna(0).astype(int)
+    working["temp_f"] = df.get("temp", df.get("temperature", pd.Series([np.nan] * len(working)))).astype(float)
+    working["wind_mph"] = df.get("wind", pd.Series([np.nan] * len(working))).astype(float)
 
     features = working.drop(columns=["result"])
     target = (working["result"] > 0).astype(int)

@@ -6,7 +6,13 @@ import argparse
 import json
 
 from src.llm.explain import explain_decision
-from src.sim.fourth_down import GameState, evaluate_fourth_down, load_model, load_rate_models
+from src.sim.fourth_down import (
+    GameState,
+    decision_intervals,
+    evaluate_fourth_down,
+    load_model,
+    load_rate_models,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--away-timeouts", type=int, default=3, choices=[0, 1, 2, 3])
     parser.add_argument("--model-path", default="models/wp_model.joblib")
     parser.add_argument("--rate-dir", default="models/rates")
+    parser.add_argument("--use-priors", action="store_true", help="Apply team priors if available.")
     return parser.parse_args()
 
 
@@ -48,7 +55,10 @@ def main() -> None:
     )
     model = load_model(args.model_path)
     rate_models = load_rate_models(args.rate_dir)
+    if not args.use_priors and rate_models:
+        rate_models.team_priors = None
     decisions = evaluate_fourth_down(model, gs, rate_models=rate_models)
+    intervals = decision_intervals(model, gs, rate_models=rate_models, n_samples=200, alpha=0.1)
     best = decisions[0]
     rationale = explain_decision(best, gs)
     print(
@@ -57,6 +67,7 @@ def main() -> None:
                 "decision": best["decision"],
                 "wp": best["wp"],
                 "latency_ms": best.get("sim_ms"),
+                "intervals": intervals.get(best["decision"]),
                 "rationale": rationale,
                 "decisions": decisions,
             },

@@ -10,11 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+import json
 
 import joblib
 import numpy as np
 import pandas as pd
 import time
+from numpy.random import default_rng
 
 
 @dataclass
@@ -93,15 +95,18 @@ class RateModels:
     conversion_model: Optional[object] = None
     fg_model: Optional[object] = None
     punt_model: Optional[object] = None
+    team_priors: Optional[Dict[str, float]] = None
 
 
 def load_rate_models(model_dir: Path | str = Path("models/rates")) -> RateModels:
     """Load rate models if present; missing files are ignored."""
     model_dir = Path(model_dir)
     conv = fg = punt = None
+    team_priors = None
     conv_path = model_dir / "conversion.joblib"
     fg_path = model_dir / "fg.joblib"
     punt_path = model_dir / "punt.joblib"
+    priors_path = model_dir / "priors.json"
 
     if conv_path.exists():
         conv = joblib.load(conv_path)
@@ -109,8 +114,11 @@ def load_rate_models(model_dir: Path | str = Path("models/rates")) -> RateModels
         fg = joblib.load(fg_path)
     if punt_path.exists():
         punt = joblib.load(punt_path)
+    if priors_path.exists():
+        with priors_path.open() as f:
+            team_priors = json.load(f)
 
-    return RateModels(conversion_model=conv, fg_model=fg, punt_model=punt)
+    return RateModels(conversion_model=conv, fg_model=fg, punt_model=punt, team_priors=team_priors)
 
 
 def flip_possession(state: GameState, new_yardline_100: float) -> GameState:
@@ -128,6 +136,11 @@ def flip_possession(state: GameState, new_yardline_100: float) -> GameState:
 
 def estimate_go_conversion_prob(state: GameState, rate_models: RateModels | None = None) -> float:
     """Estimate fourth-down conversion probability."""
+    prior_adj = 0.0
+    if rate_models and rate_models.team_priors:
+        prior_adj = rate_models.team_priors.get(state.posteam, 0.0) - rate_models.team_priors.get(
+            state.defteam, 0.0
+        )
     if rate_models and rate_models.conversion_model is not None:
         features = pd.DataFrame(
             {
@@ -138,7 +151,8 @@ def estimate_go_conversion_prob(state: GameState, rate_models: RateModels | None
             }
         )
         try:
-            return float(rate_models.conversion_model.predict_proba(features)[0, 1])
+            prob = float(rate_models.conversion_model.predict_proba(features)[0, 1] + prior_adj)
+            return float(np.clip(prob, 0.05, 0.95))
         except Exception:  # pragma: no cover - fallback safety
             pass
 
@@ -154,10 +168,17 @@ def estimate_fg_prob(state: GameState, rate_models: RateModels | None = None) ->
     """Estimate field-goal success probability."""
     distance = state.yardline_100 + 17  # line of scrimmage + 17 yards
 
+    prior_adj = 0.0
+    if rate_models and rate_models.team_priors:
+        prior_adj = rate_models.team_priors.get(state.posteam, 0.0) - rate_models.team_priors.get(
+            state.defteam, 0.0
+        )
+
     if rate_models and rate_models.fg_model is not None:
         features = pd.DataFrame({"kick_distance": [distance]})
         try:
-            return float(rate_models.fg_model.predict_proba(features)[0, 1])
+            prob = float(rate_models.fg_model.predict_proba(features)[0, 1] + prior_adj)
+            return float(np.clip(prob, 0.1, 0.98))
         except Exception:  # pragma: no cover
             pass
 
@@ -177,7 +198,10 @@ def estimate_punt_net_yards(state: GameState, rate_models: RateModels | None = N
 
     base = 44.0
     short_field_penalty = max(0, 50 - state.yardline_100) * 0.12
-    return float(np.clip(base - short_field_penalty, 20, 55))
+    prior_adj = 0.0
+    if rate_models and rate_models.team_priors:
+        prior_adj = rate_models.team_priors.get(state.defteam, 0.0) * 2  # defensive punt return strength proxy
+    return float(np.clip(base - short_field_penalty + prior_adj, 20, 55))
 
 
 def predict_wp(model, state: GameState) -> float:
@@ -201,7 +225,8 @@ def simulate_go_for_it(model, state: GameState, rate_models: RateModels | None =
             home_score=state.home_score + (7 if state.posteam == state.home_team else 0),
             away_score=state.away_score + (7 if state.posteam == state.away_team else 0),
         )
-        success_state = flip_possession(success_state, new_yardline_100=75)  # touchback after score
+        # After score, opponents receive at own 25 => offense faces 75 to opponent end zone
+        success_state = flip_possession(success_state, new_yardline_100=75)
 
     success_wp = predict_wp(model, success_state)
 
@@ -276,6 +301,72 @@ def recommend_decision(model, state: GameState, rate_models: RateModels | None =
 def batch_recommendations(model, states: Iterable[GameState]) -> List[Dict[str, float]]:
     """Evaluate a batch of states; returns list aligned with input order."""
     return [recommend_decision(model, s) for s in states]
+
+
+def decision_intervals(
+    model,
+    state: GameState,
+    rate_models: RateModels | None = None,
+    n_samples: int = 200,
+    alpha: float = 0.1,
+) -> Dict[str, Dict[str, float]]:
+    """Monte Carlo intervals for decisions based on success/failure randomness."""
+    rng = default_rng(42)
+    results: Dict[str, Dict[str, float]] = {}
+
+    # Go for it samples
+    conv_prob = estimate_go_conversion_prob(state, rate_models)
+    go_samples = []
+    for _ in range(n_samples):
+        success = rng.random() < conv_prob
+        if success:
+            yards_gained = max(state.ydstogo, 1)
+            new_yard = max(state.yardline_100 - yards_gained, 0)
+            success_state = replace(state, down=1, ydstogo=10, yardline_100=new_yard)
+            if new_yard <= 0:
+                success_state = replace(
+                    success_state,
+                    home_score=state.home_score + (7 if state.posteam == state.home_team else 0),
+                    away_score=state.away_score + (7 if state.posteam == state.away_team else 0),
+                )
+                success_state = flip_possession(success_state, new_yardline_100=75)
+            go_samples.append(predict_wp(model, success_state))
+        else:
+            fail_yard = max(100 - state.yardline_100, 1)
+            failure_state = flip_possession(state, new_yardline_100=fail_yard)
+            go_samples.append(predict_wp(model, failure_state))
+
+    # Field goal samples
+    fg_prob = estimate_fg_prob(state, rate_models)
+    fg_samples = []
+    for _ in range(n_samples):
+        made = rng.random() < fg_prob
+        if made:
+            success_state = replace(
+                state,
+                home_score=state.home_score + (3 if state.posteam == state.home_team else 0),
+                away_score=state.away_score + (3 if state.posteam == state.away_team else 0),
+            )
+            success_state = flip_possession(success_state, new_yardline_100=75)
+            fg_samples.append(predict_wp(model, success_state))
+        else:
+            miss_yard = max(100 - state.yardline_100, 1)
+            miss_state = flip_possession(state, new_yardline_100=miss_yard)
+            fg_samples.append(predict_wp(model, miss_state))
+
+    # Punt samples (deterministic here)
+    punt_wp, _ = simulate_punt(model, state, rate_models)
+    punt_samples = [punt_wp] * n_samples
+
+    def summarize(arr: List[float]) -> Dict[str, float]:
+        lower = np.percentile(arr, (alpha / 2) * 100)
+        upper = np.percentile(arr, (1 - alpha / 2) * 100)
+        return {"mean": float(np.mean(arr)), "low": float(lower), "high": float(upper)}
+
+    results["go for it"] = summarize(go_samples)
+    results["field goal"] = summarize(fg_samples)
+    results["punt"] = summarize(punt_samples)
+    return results
 
 
 def _validate_state(state: GameState) -> None:

@@ -73,6 +73,7 @@ python -m src.agents.run_langgraph_agent ...# agent
   ```bash
   python -m src.sim.eval_rates
   ```
+- Optional team priors: copy `models/rates/priors.template.json` to `models/rates/priors.json` and edit values.
 - Run the Streamlit UI:
   ```bash
   streamlit run app/streamlit_app.py
@@ -104,6 +105,13 @@ python -m src.agents.run_langgraph_agent ...# agent
 - Deploy to Render (Streamlit + API): see `render.yaml` and `docs/deploy_render.md`.
 - Model Card: `reports/model_card.md`
 - Case Study: `reports/case_study.md`
+- Performance: WP train/infer and sim latencies; API `/version` and `/health` endpoints.
+- Metrics: WP AUC 0.942 [0.9396, 0.9437]; LogLoss 0.304 [0.2998, 0.3095]; Brier 0.0947 [0.0931, 0.0969]
+
+## Live Demo (add your links)
+- Streamlit UI: https://your-streamlit-url
+- API: https://your-api-url (`/health`, `/version`, `/recommend`)
+- Demo video: https://your-demo-link
 
 ## Testing
 ```bash
@@ -115,6 +123,7 @@ pytest
 - If `models/rates/*.joblib` exist, the simulator uses them; otherwise it falls back to heuristics.
 - Use `--calibrate` when training the WP model to improve probability calibration.
 - Plots: see `outputs/metrics/wp_calibration.png`, `wp_roc.png`, and rate-model plots (`conversion_calibration.png`, `fg_calibration.png`, `*_error_hist.png`).
+- WP metrics with 95% CI: `outputs/metrics/wp_metrics.txt`
 
 ## Highlights (what’s interesting)
 - LangGraph agent + CLI/API/UI surfaces a consistent decision engine.
